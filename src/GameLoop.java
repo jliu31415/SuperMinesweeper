@@ -5,8 +5,10 @@ public class GameLoop {
 	private static Scanner s;
 	private static int N, M, D, d;
 	private static int[][] board;
-	private static final int UNCHECKED = -2;
+	private static final int MINE = -1, UNCHECKED = -2;
+	private static ArrayList<int[]> borderCells;
 	private static boolean gameRunning = true;
+	private static boolean debug = true;
 	
 	public static void main(String args[]) {		
 		initVariables();
@@ -14,12 +16,14 @@ public class GameLoop {
 		Thread loop = new Thread(new Runnable() {
 			public void run() {
 				while (gameRunning) {
-					//TODO
-					try {
-						Thread.sleep(1000);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+					debug("" + borderCells.size());
+					for (int i = borderCells.size()-1; i >= 0; i--) {	//traverse backward in case of removal
+						compute(borderCells.get(i));
+					}
+					
+					if (M == 0) {
+						gameRunning = false;
+						System.out.println("STOP");
 					}
 				}
 			}
@@ -45,6 +49,7 @@ public class GameLoop {
 		waitForData();	
 		int initCol = s.nextInt();
 		board[initRow][initCol] = 0;
+		borderCells = new ArrayList<int[]>();
 		isZero(initRow, initCol);
 	}
 	
@@ -55,6 +60,31 @@ public class GameLoop {
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			}
+		}
+
+		if (s.hasNext("Debug")) {
+			s.next();	//clear debug output
+			waitForData();
+		}
+	}
+	
+	public static void compute(int[] borderCell) {
+		int row = borderCell[0];
+		int col = borderCell[1];
+		ArrayList<int[]> unchecked = getAdjUnchecked(row, col);
+		int adjMines = countAdjMines(row, col);
+		if (board[row][col] == adjMines + unchecked.size()) {	//surroundings are mines
+			for (int[] cell : unchecked) {
+				board[cell[0]][cell[1]] = MINE;
+				isMine(cell[0], cell[1]);
+				M--;	//decrement total mine count
+			}
+			borderCells.remove(borderCell);
+		} else if (board[row][col] == adjMines) {	//surroundings are safe
+			for (int[] cell : unchecked) {
+				guess(cell[0], cell[1]);
+			}
+			borderCells.remove(borderCell);
 		}
 	}
 	
@@ -77,7 +107,37 @@ public class GameLoop {
 		} else {
 			board[row][col] = s.nextInt();
 			s.next();	//clear runtime feedback
+			
 			if (board[row][col] == 0) isZero(row, col);
+			else borderCells.add(new int[] {row, col});
 		}
+	}
+	
+	public static void isMine(int row, int col) {
+		System.out.println("F " + row + " " + col);
+	}
+	
+	public static int countAdjMines(int row, int col) {
+		int count = 0;
+		for (int i = Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
+			for (int j = Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
+				if (board[i][j] == MINE) count++;
+			}
+		}
+		return count;
+	}
+	
+	public static ArrayList<int[]> getAdjUnchecked(int row, int col) {
+		ArrayList<int[]> adjacent = new ArrayList<int[]>();
+		for (int i = Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
+			for (int j = Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
+				if (board[i][j] == UNCHECKED) adjacent.add(new int[] {i, j});
+			}
+		}
+		return adjacent;
+	}
+	
+	public static void debug(String s) {
+		if (debug) System.out.println("Debug " + s);
 	}
 }

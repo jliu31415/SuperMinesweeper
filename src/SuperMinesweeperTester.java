@@ -277,96 +277,98 @@ public class SuperMinesweeperTester extends MarathonAnimatedVis {
           startTime();
           String move = readLine();
           stopTime();
-          
-          if (move.equals("STOP"))
-          {
-            GameOver=true;
-            if (debug)
-            {
-              System.out.println("Move #" + numMoves + ": " + move);
-            }
-            update(score);
-            break;
+          if (move.contains("Debug")) System.out.println(move);
+          else {
+	          if (move.equals("STOP"))
+	          {
+	            GameOver=true;
+	            if (debug)
+	            {
+	              System.out.println("Move #" + numMoves + ": " + move);
+	            }
+	            update(score);
+	            break;
+	          }
+	                 
+	          //get move
+	          int r,c;
+	          char type;
+	          try
+	          {
+	            String[] temp=move.split(" ");
+	            if (temp.length!=3)
+	            {
+	              setErrorMessage("Error reading move: "+move);
+	              return -1;            
+	            }
+	            type=temp[0].charAt(0);
+	            r=Integer.parseInt(temp[1]);
+	            c=Integer.parseInt(temp[2]);
+	          }
+	          catch(Exception e)
+	          {
+	            setErrorMessage("Error reading move: "+move);
+	            return -1;
+	          }
+	          if (!(type=='F' || type=='G'))
+	          {
+	            setErrorMessage("Unknown move type: "+move);
+	            return -1;          
+	          }
+	          if (!inGrid(r,c))
+	          {
+	            setErrorMessage("Invalid coordinates of move: "+move);
+	            return -1;          
+	          }
+	          if (Revealed[r][c])
+	          {
+	            setErrorMessage("Location of move has already been revealed: "+move);
+	            return -1;                    
+	          }
+	                                          
+	          
+	          //if we are here then the move was valid
+	          String feedback="";
+	          Revealed[r][c]=true;
+	          lastR=r;
+	          lastC=c;
+	          numMoves++;
+	          
+	          //flagging move
+	          if (type=='F')
+	          {
+	            Flagged[r][c]=true;
+	            numFlagged++;
+	          }
+	          //guessing move
+	          else
+	          {          
+	            //we blew up
+	            if (Grid[r][c]==MINE)
+	            {
+	              feedback="BOOM! "+getRunTime();
+	              minesHit++;
+	            }
+	            //we guessed a number
+	            else
+	            {
+	              feedback=Grid[r][c]+" "+getRunTime();
+	              numGuesses++;
+	            }
+	          }
+	          
+	          score=(numGuesses*1.0/(N*N - M))/(minesHit+1);
+	          update(score);
+	
+	          if (debug)
+	          {
+	            System.out.println("Move #" + numMoves + ": " + move);
+	            System.out.println("Feedback #" + numMoves + ": " + feedback);
+	          }            
+	
+	          writeLine(feedback);
+	          flush();
           }
-                 
-          //get move
-          int r,c;
-          char type;
-          try
-          {
-            String[] temp=move.split(" ");
-            if (temp.length!=3)
-            {
-              setErrorMessage("Error reading move: "+move);
-              return -1;            
-            }
-            type=temp[0].charAt(0);
-            r=Integer.parseInt(temp[1]);
-            c=Integer.parseInt(temp[2]);
-          }
-          catch(Exception e)
-          {
-            setErrorMessage("Error reading move: "+move);
-            return -1;
-          }
-          if (!(type=='F' || type=='G'))
-          {
-            setErrorMessage("Unknown move type: "+move);
-            return -1;          
-          }
-          if (!inGrid(r,c))
-          {
-            setErrorMessage("Invalid coordinates of move: "+move);
-            return -1;          
-          }
-          if (Revealed[r][c])
-          {
-            setErrorMessage("Location of move has already been revealed: "+move);
-            return -1;                    
-          }
-                                          
-          
-          //if we are here then the move was valid
-          String feedback="";
-          Revealed[r][c]=true;
-          lastR=r;
-          lastC=c;
-          numMoves++;
-          
-          //flagging move
-          if (type=='F')
-          {
-            Flagged[r][c]=true;
-            numFlagged++;
-          }
-          //guessing move
-          else
-          {          
-            //we blew up
-            if (Grid[r][c]==MINE)
-            {
-              feedback="BOOM! "+getRunTime();
-              minesHit++;
-            }
-            //we guessed a number
-            else
-            {
-              feedback=Grid[r][c]+" "+getRunTime();
-              numGuesses++;
-            }
-          }
-          
-          score=(numGuesses*1.0/(N*N - M))/(minesHit+1);
-          update(score);
-
-          if (debug)
-          {
-            System.out.println("Move #" + numMoves + ": " + move);
-            System.out.println("Feedback #" + numMoves + ": " + feedback);
-          }            
-
-          writeLine(feedback);
-          flush();
         }
         GameOver=true;
 
