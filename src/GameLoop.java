@@ -7,7 +7,7 @@ public class GameLoop {
 	private static int[][] board;
 	private static final int MINE = -1, UNCHECKED = -2;
 	private static ArrayList<int[]> borderCells;
-	private static ArrayList<ArrayList<int[]>> borderLinks;
+	private static ArrayList<int[][]> borderMatrices;
 	private static int[][] adjMinesFound;	//number of adjacent mines
 	private static boolean gameRunning = true;
 	private static boolean stuck = true;
@@ -34,10 +34,8 @@ public class GameLoop {
 					
 					//we are logically stuck
 					if (stuck) {
-						//create a copy so we can edit the list
-						borderLinks = calculateBorderLinks(new ArrayList<int[]>(borderCells));
-						if (++debugCount < borderLinks.size()) debug(borderLinks.get(debugCount).size()+"");
-						else debug = false;
+						borderMatrices = calculateMatrices(borderCells);
+						if (++debugCount > 0) debug = false;
 					}
 					
 					debugLoop(0);
@@ -105,40 +103,59 @@ public class GameLoop {
 		}
 	}
 	
-	public static ArrayList<ArrayList<int[]>> calculateBorderLinks(ArrayList<int[]> borderCells) {
-		ArrayList<ArrayList<int[]>> links = new ArrayList<ArrayList<int[]>>();
+	public static ArrayList<int[][]> calculateMatrices(ArrayList<int[]> borderCells) {
+		ArrayList<int[][]> matrices = new ArrayList<int[][]>();
 		boolean[][] cellsScanned = new boolean[N][N];	//keep track if cell has already been dealt with
-		int row, col;
-		while (borderCells.size() > 0) {
-			for (int i = borderCells.size()-1; i >= 0; i--) {
-				row = borderCells.get(i)[0];
-				col = borderCells.get(i)[1];
+		int row, col, cellCount = 0;
+		while (cellCount < borderCells.size()) {
+			for (int[] borderCell : borderCells) {
+				row = borderCell[0];
+				col = borderCell[1];
 				if (cellsScanned[row][col]) {
-					borderCells.remove(i);
+					continue;
 				} else {
-					cellsScanned[row][col] = true;
-					links.add(getCellLink(row, col, cellsScanned));
+					ArrayList<ArrayList<int[]>> cellLinks = getCellLinks(row, col, cellsScanned);	//cellsScanned will update accordingly
+					debug("checked");
+					for (int[] a : cellLinks.get(0)) debug(Arrays.toString(a));
+					debug("unchecked");
+					for (int[] a : cellLinks.get(1)) debug(Arrays.toString(a));
+					matrices.add(getLinkedMatrix(cellLinks.get(0), cellLinks.get(1)));
 				}
 			}
 		}
-		return links;
+		return matrices;
 	}
 	
-	public static ArrayList<int[]> getCellLink(int row, int col, boolean[][] cellsScanned) {
-		ArrayList<int[]> cellLink = new ArrayList<int[]>();
-		for (int[] checked : getAdj(row, col, true)) {
-			if (!cellsScanned[checked[0]][checked[1]]) {
-				cellsScanned[checked[0]][checked[1]] = true;
-				for (int[] link : getAdj(checked[0], checked[1], false)) {
-					if (!cellsScanned[link[0]][link[1]]) {
-						cellLink.add(link);
-						cellsScanned[link[0]][link[1]] = true;
-						cellLink.addAll(getCellLink(link[0], link[1], cellsScanned));
-					}
+	//return matrix system that corresponds to specified cell links
+	public static int[][] getLinkedMatrix(ArrayList<int[]> cLink, ArrayList<int[]> ucLink) {
+		int[][] matrix = new int[ucLink.size()][cLink.size()];
+		return matrix;
+	}
+	
+	//returns chain that links to specified row and column
+	//return is an ArrayList that consists of two links
+	public static ArrayList<ArrayList<int[]>> getCellLinks(int row, int col, boolean[][] cellsScanned) {
+		ArrayList<int[]> cLink = new ArrayList<int[]>();	//link containing checked cells
+		ArrayList<int[]> ucLink = new ArrayList<int[]>();	//link containing unchecked cells
+		
+		for (int[] uc : getAdj(row, col, false)) {	//get unchecked adjacent to border
+			if (cellsScanned[uc[0]][uc[1]]) continue;	//skip if already scanned
+			cellsScanned[uc[0]][uc[1]] = true;
+			ucLink.add(uc);
+				for (int[] c : getAdj(uc[0], uc[1], true)) {	//get checked adjacent to unchecked adjacent
+					if (cellsScanned[c[0]][c[1]]) continue;		//skip if already scanned
+					cLink.add(c);
+					cellsScanned[c[0]][c[1]] = true;
+					ArrayList<ArrayList<int[]>> recurLinks = getCellLinks(c[0], c[1], cellsScanned);
+					cLink.addAll(recurLinks.get(0));
+					ucLink.addAll(recurLinks.get(1));
 				}
-			}
 		}
-		return cellLink;
+		
+		ArrayList<ArrayList<int[]>> ret = new ArrayList<ArrayList<int[]>>();
+		ret.add(cLink);
+		ret.add(ucLink);
+		return ret;
 	}
 	
 	public static void isZero(int row, int col) {
@@ -187,7 +204,7 @@ public class GameLoop {
 		for (int i = Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
 			for (int j = Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
 				if (Math.pow(row-i, 2) + Math.pow(col-j, 2) <= D) {
-					if (checked && board[i][j] != UNCHECKED) adjacent.add(new int[] {i, j});
+					if (checked && board[i][j] != UNCHECKED && board[i][j] != MINE) adjacent.add(new int[] {i, j});
 					if (!checked && board[i][j] == UNCHECKED) adjacent.add(new int[] {i, j});	
 				}
 			}
