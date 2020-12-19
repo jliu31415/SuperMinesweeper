@@ -3,7 +3,8 @@ import java.util.*;
 
 public class GameLoop {
 	private static Scanner s;
-	private static int N, M, D, d;
+	private static int N, M, D;
+	private static double d;
 	private static int[][] board;
 	private static final int MINE = -1, UNCHECKED = -2;
 	private static ArrayList<int[]> borderCells;
@@ -18,10 +19,11 @@ public class GameLoop {
 		
 		Thread loop = new Thread(new Runnable() {
 			public void run() {
-				int debugCount = -1;
-				while (gameRunning) {					
-					stuck = true;
+				int debugCount = 0;
+				while (gameRunning) {
+					debugDelay(0);
 					
+					stuck = true;
 					for (int i = borderCells.size()-1; i >= 0; i--) {	//traverse backward in case of removal
 						//boolean stuck will toggle if guess or flag output
 						compute(borderCells.get(i));
@@ -35,10 +37,13 @@ public class GameLoop {
 					//we are logically stuck
 					if (stuck) {
 						borderMatrices = calculateMatrices(borderCells);
-						if (++debugCount > 0) debug = false;
+						for (int[][] a : borderMatrices) {
+							debug("MATRIX");
+							for (int[] b : a) debug(Arrays.toString(b));
+						}
+						
+						debug = false;	//only debug once
 					}
-					
-					debugLoop(0);
 				}
 			}
 		});
@@ -53,7 +58,7 @@ public class GameLoop {
 		M = s.nextInt();	//number of mines
 		waitForData();
 		D = s.nextInt();	//squared distance threshold
-		d = (int) Math.pow(D, .5);	//root of D, floored
+		d = Math.pow(D, .5);	//root of D, floored
 		board = new int[N][N];
 		adjMinesFound = new int[N][N];
 		for (int[] a : board) Arrays.fill(a, UNCHECKED);
@@ -115,11 +120,8 @@ public class GameLoop {
 					continue;
 				} else {
 					ArrayList<ArrayList<int[]>> cellLinks = getCellLinks(row, col, cellsScanned);	//cellsScanned will update accordingly
-					debug("checked");
-					for (int[] a : cellLinks.get(0)) debug(Arrays.toString(a));
-					debug("unchecked");
-					for (int[] a : cellLinks.get(1)) debug(Arrays.toString(a));
 					matrices.add(getLinkedMatrix(cellLinks.get(0), cellLinks.get(1)));
+					cellCount += matrices.get(matrices.size()-1)[0].length;
 				}
 			}
 		}
@@ -127,8 +129,22 @@ public class GameLoop {
 	}
 	
 	//return matrix system that corresponds to specified cell links
+	//matrix corresponds with cell link indices
 	public static int[][] getLinkedMatrix(ArrayList<int[]> cLink, ArrayList<int[]> ucLink) {
-		int[][] matrix = new int[ucLink.size()][cLink.size()];
+		int[][] matrix = new int[cLink.size()][ucLink.size()+1];
+		for (int i = 0; i < cLink.size(); i++) {
+			for (int j = 0; j < ucLink.size(); j++) {
+				int xDist = cLink.get(i)[0] - ucLink.get(j)[0];
+				int yDist = cLink.get(i)[1] - ucLink.get(j)[1];
+				if (Math.hypot(xDist, yDist) <= d) matrix[i][j] = 1;
+			}
+		}
+		
+		//fill in last column of augmented matrix with given values
+		for (int i = 0; i < cLink.size(); i++) {
+			matrix[i][ucLink.size()] = board[cLink.get(i)[0]][cLink.get(i)[1]];
+		}
+		
 		return matrix;
 	}
 	
@@ -159,9 +175,9 @@ public class GameLoop {
 	}
 	
 	public static void isZero(int row, int col) {
-		for (int i = Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
-			for (int j = Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
-				if (Math.pow(row-i, 2) + Math.pow(col-j, 2) <= D) {
+		for (int i = (int) Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
+			for (int j = (int) Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
+				if (Math.hypot(row-i, col-j) <= d) {
 					guess(i, j);
 				}
 			}
@@ -190,9 +206,10 @@ public class GameLoop {
 			System.out.println("F " + row + " " + col);
 		}
 		//update adjacent mines array
-		for (int i = Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
-			for (int j = Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
-				if (Math.pow(row-i, 2) + Math.pow(col-j, 2) <= D) {
+		for (int i = (int) Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
+			for (int j = (int) Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
+				if (row == i && col == j) continue;	//do not update same cell
+				if (Math.hypot(row-i, col-j) <= d) {
 					adjMinesFound[i][j]++;
 				}
 			}
@@ -201,10 +218,13 @@ public class GameLoop {
 	
 	public static ArrayList<int[]> getAdj(int row, int col, boolean checked) {
 		ArrayList<int[]> adjacent = new ArrayList<int[]>();
-		for (int i = Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
-			for (int j = Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
-				if (Math.pow(row-i, 2) + Math.pow(col-j, 2) <= D) {
+		for (int i = (int) Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
+			for (int j = (int) Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
+				if (Math.hypot(row-i, col-j) <= d) {
+					if (row == i && col == j) continue;		//skip if same cell
+					//give checked adjacent cells
 					if (checked && board[i][j] != UNCHECKED && board[i][j] != MINE) adjacent.add(new int[] {i, j});
+					//give unchecked adjacent cells
 					if (!checked && board[i][j] == UNCHECKED) adjacent.add(new int[] {i, j});	
 				}
 			}
@@ -212,7 +232,7 @@ public class GameLoop {
 		return adjacent;
 	}
 	
-	public static void debugLoop(int delayMillis) {
+	public static void debugDelay(int delayMillis) {
 		debug("----------");
 		try {
 			Thread.sleep(delayMillis);
