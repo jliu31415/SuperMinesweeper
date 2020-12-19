@@ -37,11 +37,9 @@ public class GameLoop {
 						//create a copy so we can edit the list
 						borderLinks = calculateBorderLinks(new ArrayList<int[]>(borderCells));
 						if (++debugCount < borderLinks.size()) debug(borderLinks.get(debugCount).size()+"");
-//							for (int[] a : borderLinks.get(debugCount)) debug(Arrays.toString(a));
 						else debug = false;
 					}
 					
-					//debug(Arrays.deepToString(board));
 					debugLoop(0);
 				}
 			}
@@ -82,7 +80,7 @@ public class GameLoop {
 		}
 
 		if (s.hasNext("Debug")) {
-			s.next();	//clear debug output
+			s.nextLine();	//clear debug output
 			waitForData();
 		}
 	}
@@ -91,10 +89,11 @@ public class GameLoop {
 		int row = borderCell[0];
 		int col = borderCell[1];
 		ArrayList<int[]> unchecked = getAdj(row, col, false);
+		
 		if (board[row][col] == adjMinesFound[row][col] + unchecked.size()) {	//surroundings are mines
 			for (int[] cell : unchecked) {
 				board[cell[0]][cell[1]] = MINE;
-				isMine(cell[0], cell[1]);
+				isMine(cell[0], cell[1], true);
 				M--;	//decrement total mine count
 			}
 			borderCells.remove(borderCell);
@@ -159,6 +158,7 @@ public class GameLoop {
 		waitForData();
 		if (s.hasNext("BOOM!")) {
 			s.nextLine();	//clear runtime feedback
+			isMine(row, col, false);	//do not print output
 		} else {
 			board[row][col] = s.nextInt();
 			s.next();	//clear runtime feedback
@@ -167,9 +167,11 @@ public class GameLoop {
 		}
 	}
 	
-	public static void isMine(int row, int col) {
-		stuck = false;
-		System.out.println("F " + row + " " + col);
+	public static void isMine(int row, int col, boolean output) {
+		if (output) {
+			stuck = false;
+			System.out.println("F " + row + " " + col);
+		}
 		//update adjacent mines array
 		for (int i = Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
 			for (int j = Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
