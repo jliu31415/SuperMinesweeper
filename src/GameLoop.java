@@ -15,11 +15,10 @@ public class GameLoop {
 	private static boolean debug = true;
 	
 	public static void main(String args[]) {		
-		initVariables();
-		
 		Thread loop = new Thread(new Runnable() {
 			public void run() {
-				int debugCount = 0;
+				initVariables();
+				
 				while (gameRunning) {
 					debugDelay(0);
 					
@@ -34,20 +33,20 @@ public class GameLoop {
 						System.out.println("STOP");
 					}
 					
-					//we are logically stuck
+					//if stuck with previous methods, use linear algebra
 					if (stuck) {
 						borderMatrices = calculateMatrices(borderCells);
-						for (int[][] a : borderMatrices) {
-							debug("MATRIX");
-							for (int[] b : a) debug(Arrays.toString(b));
-						}
-						
 						debug = false;	//only debug once
+						gameRunning = false;	//stop game for now
 					}
 				}
 			}
 		});
-		loop.run();
+		
+		//loop.run();
+		
+		double[][] mat = new double[][] {{0, 1, 2, 3, 6}, {0, 2, -3, 2, 14}, {0, 3, 1, -1, -2}, {0, 0, 0, 0, 0}};
+		System.out.println(Arrays.deepToString(rref(mat, 0, 0)));
 	}
 	
 	public static void initVariables() {
@@ -230,6 +229,47 @@ public class GameLoop {
 			}
 		}
 		return adjacent;
+	}
+	
+	public static double[][] rref(double[][] matrix, int pivotR, int pivotC) {
+		if (pivotR >= matrix.length || pivotC >= matrix[0].length) return matrix;
+		
+		//find partial pivot
+		double tol = Math.pow(10, -5);
+		double max = 0;	//maximum absolute value
+		int swapIndex = 0;
+		for (int i = pivotR; i < matrix.length; i++) {
+			if (Math.abs(matrix[i][pivotC]) > Math.abs(max)) {
+				max = matrix[i][pivotC];
+				swapIndex = i;
+			}
+		}
+		if (Math.abs(max) <= tol) return rref(matrix, pivotR, pivotC+1);	//skip zero column
+		
+		//swap pivot row (bring to top)
+		if (pivotR != swapIndex) {
+			for (int j = pivotC; j < matrix[0].length; j++) {
+				matrix[pivotR][j] += matrix[swapIndex][j];
+				matrix[swapIndex][j] = matrix[pivotR][j] - matrix[swapIndex][j];
+				matrix[pivotR][j] -= matrix[swapIndex][j];
+			}
+		}
+		
+		//normalize pivot row (traverse backwards to retain first value)
+		for (int j = matrix[0].length-1; j >= pivotC ; j--) {
+			matrix[pivotR][j] /= matrix[pivotR][pivotC];
+		}
+		
+		//zero out entries
+		for (int i = 0; i < matrix.length; i++) {
+			if (i == pivotR) continue;	//skip pivot row
+			//traverse backwards to retain first value
+			for (int j = matrix[0].length-1; j >= pivotC ; j--) {
+				matrix[i][j] -= matrix[i][pivotC]*matrix[pivotR][j];	//subtract rows
+			}
+		}
+		
+		return rref(matrix, pivotR+1, pivotC+1);
 	}
 	
 	public static void debugDelay(int delayMillis) {
