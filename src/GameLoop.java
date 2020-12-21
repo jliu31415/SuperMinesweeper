@@ -14,7 +14,7 @@ public class GameLoop {
 	private static ArrayList<int[]> revealedBorder;
 	private static ArrayList<double[][]> matrices;
 	private static boolean gameRunning = true;
-	private static boolean output = false;
+	private static boolean output = true;
 	private static boolean debug = true;
 	
 	public static void main(String args[]) {		
@@ -22,14 +22,17 @@ public class GameLoop {
 			public void run() {
 				initVariables();
 				while (gameRunning) {
+					debug("LOOP----------");
+					
 					if (M == 0 || !output) endGame();
 					
+					output = false;
+					updateBorder();
 					updateLinks();
 					updateMatrices();
-					
-					debugInfo();
-					
-					endGame();
+					//debugInfo();
+					resolveCertainties();
+					//endGame();
 				}
 			}
 		});
@@ -77,9 +80,49 @@ public class GameLoop {
 		}
 	}
 	
-	//returns a list of viable guesses
-	public static ArrayList<int[]> rankGuesses() {
-		return null;
+	//resolve logical certainties
+	public static void resolveCertainties() {
+		for (int i = 0; i < matrices.size(); i++) {
+			double[][] matrix = rref(matrices.get(i), 0, 0);	//initial pivot at (0, 0)
+			ArrayList<int[]> hLink = hiddenLinks.get(i);
+			ArrayList<int[]> pCells = new ArrayList<int[]>();	//coordinates of positive entries
+			ArrayList<int[]> nCells = new ArrayList<int[]>();	//coordinates of negative entries
+			
+			for (int row = 0; row < matrix.length; row++) {
+				double pos = 0, neg = 0;
+				pCells.clear();
+				nCells.clear();
+				
+				for (int col = 0; col < matrix[0].length-1; col++) {
+					if (matrix[row][col] > TOLERANCE) {
+						pos += matrix[row][col];
+						pCells.add(hLink.get(col));
+					} else if (matrix[row][col] < -TOLERANCE) {
+						neg += matrix[row][col];
+						nCells.add(hLink.get(col));
+					}
+				}
+				
+				double val = matrix[row][matrix[0].length-1];
+				if (pCells.size() + nCells.size() > 0) {	//if not zero row
+					if (Math.abs(val-pos) < TOLERANCE) {	//all positive entries are mines (1), all negative entries are safe (0)
+						for (int[] p : pCells) {
+							isMine(p[0], p[1]);
+						}
+						for (int[] n : nCells) {
+							guess(n[0], n[1]);
+						}
+					} else if (Math.abs(val-neg) < TOLERANCE) {	//all negative entries are mines (1), all positive entries are safe (0)
+						for (int[] p : pCells) {
+							guess(p[0], p[1]);
+						}
+						for (int[] n : nCells) {
+							isMine(n[0], n[1]);
+						}
+					}	//else, row does not give information with certainty
+				}
+			}
+		}
 	}
 	
 	public static double[] bruteForce(double[][] matrix) {
@@ -133,6 +176,15 @@ public class GameLoop {
 		return probs;
 	}
 	
+	//remove cell if no longer on border
+	public static void updateBorder() {
+		for (int i = revealedBorder.size()-1; i >= 0; i--) {	//traverse backwards to prevent concurrent modification
+			//if cell no longer has hidden adjacent cells
+			if (getAdj(revealedBorder.get(i)[0], revealedBorder.get(i)[1], false).size() == 0)
+				revealedBorder.remove(i);
+		}
+	}
+	
 	//return matrix system that corresponds to specified cell links, must be double[][] return type for row reduction
 	public static void updateMatrices() {
 		matrices.clear();
@@ -152,9 +204,11 @@ public class GameLoop {
 				}
 			}
 			
-			//fill in last column of augmented matrix with given values
+			//fill in last column of augmented matrix with given values (number of remaining mines)
 			for (int i = 0; i < rLink.size(); i++) {
-				matrix[i][hLink.size()] = board[rLink.get(i)[0]][rLink.get(i)[1]];
+				int row = rLink.get(i)[0];
+				int col = rLink.get(i)[1];
+				matrix[i][hLink.size()] = board[row][col] - numMines(row, col);
 			}
 			
 			matrices.add(matrix);
@@ -166,7 +220,7 @@ public class GameLoop {
 		hiddenLinks.clear();
 		boolean[][] scanned = new boolean[N][N];	//keep track if cell has already been dealt with
 		int row, col, cellCount = 0;
-		
+
 		while (cellCount < revealedBorder.size()) {
 			for (int[] borderCell : revealedBorder) {
 				row = borderCell[0];
@@ -187,19 +241,19 @@ public class GameLoop {
 	public static ArrayList<ArrayList<int[]>> getCellLinks(int row, int col, boolean[][] scanned) {
 		ArrayList<int[]> rLink = new ArrayList<int[]>();	//link containing revealed cells
 		ArrayList<int[]> hLink = new ArrayList<int[]>();	//link containing hidden cells
-		
+
 		for (int[] hidden : getAdj(row, col, false)) {	//get hidden cells adjacent to revealed border cell
 			if (scanned[hidden[0]][hidden[1]]) continue;	//skip if already scanned
 			scanned[hidden[0]][hidden[1]] = true;
 			hLink.add(hidden);
-				for (int[] revealed : getAdj(hidden[0], hidden[1], true)) {	//get revealed cells adjacent to hidden cell
-					if (scanned[revealed[0]][revealed[1]]) continue;		//skip if already scanned
-					rLink.add(revealed);
-					scanned[revealed[0]][revealed[1]] = true;
-					ArrayList<ArrayList<int[]>> recurLinks = getCellLinks(revealed[0], revealed[1], scanned);
-					rLink.addAll(recurLinks.get(0));
-					hLink.addAll(recurLinks.get(1));
-				}
+			for (int[] revealed : getAdj(hidden[0], hidden[1], true)) {	//get revealed cells adjacent to hidden cell
+				if (scanned[revealed[0]][revealed[1]]) continue;		//skip if already scanned
+				rLink.add(revealed);
+				scanned[revealed[0]][revealed[1]] = true;
+				ArrayList<ArrayList<int[]>> recurLinks = getCellLinks(revealed[0], revealed[1], scanned);
+				rLink.addAll(recurLinks.get(0));
+				hLink.addAll(recurLinks.get(1));
+			}
 		}
 		
 		ArrayList<ArrayList<int[]>> ret = new ArrayList<ArrayList<int[]>>();
@@ -220,8 +274,8 @@ public class GameLoop {
 	}
 	
 	public static void guess(int row, int col) {
+		if (!(board[row][col] == HIDDEN)) return;	//ignore if cell has been revealed
 		output = true;
-		if (board[row][col] != HIDDEN) return;	//ignore if cell has been checked
 		System.out.println("G " + row + " " + col);
 		waitForData();
 		
@@ -233,23 +287,29 @@ public class GameLoop {
 			s.next();	//clear runtime feedback
 			
 			if (board[row][col] == 0) isZero(row, col);		//recursive zero-out
-			else {
-				//update revealed border
-				revealedBorder.add(new int[] {row, col});
-				for (int[] cell : getAdj(row, col, true)) {
-					//if cell no longer has adjacent hidden cells
-					if (getAdj(cell[0], cell[1], false).size() == 0)
-						revealedBorder.remove(cell);
-				}
-			}
+			else revealedBorder.add(new int[] {row, col});	//add new (potential) border cell
 		}
 	}
 	
 	public static void isMine(int row, int col) {
+		if (!(board[row][col] == HIDDEN)) return;
+		board[row][col] = MINE;
 		output = true;
 		System.out.println("F " + row + " " + col);
 	}
 	
+	public static int numMines(int row, int col) {
+		int count = 0;
+		for (int i = (int) Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
+			for (int j = (int) Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
+				if (Math.hypot(row-i, col-j) <= d) {
+					if (board[i][j] == MINE) count++;
+				}
+			}
+		}
+		return count;
+	}
+
 	public static ArrayList<int[]> getAdj(int row, int col, boolean revealed) {
 		ArrayList<int[]> adjacent = new ArrayList<int[]>();
 		for (int i = (int) Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
@@ -258,7 +318,7 @@ public class GameLoop {
 					if (row == i && col == j) continue;		//skip if same cell
 					//find revealed adjacent cells
 					if (revealed && board[i][j] != HIDDEN && board[i][j] != MINE) adjacent.add(new int[] {i, j});
-					//find unchecked adjacent cells
+					//find hidden adjacent cells
 					if (!revealed && board[i][j] == HIDDEN) adjacent.add(new int[] {i, j});	
 				}
 			}
@@ -268,9 +328,11 @@ public class GameLoop {
 	
 	public static void endGame() {
 		gameRunning = false;
+		debug("END");
 		System.out.println("STOP");
 	}
 	
+	//in this game, row reduction entries are all integers (double[][] unneeded)
 	public static double[][] rref(double[][] matrix, int pivotR, int pivotC) {
 		if (pivotR >= matrix.length || pivotC >= matrix[0].length) return matrix;
 		
@@ -329,6 +391,21 @@ public class GameLoop {
 			debug("HIDDEN LINKS");
 			for (int[] h : hiddenLinks.get(i))
 				debug(Arrays.toString(h));
+		}
+		
+		debug("BORDER");
+		for (int[] b : revealedBorder) {
+			debug(Arrays.toString(b));
+		}
+		
+		delay(1000);
+	}
+	
+	public static void delay(int millis) {
+		try {
+			Thread.sleep(millis);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
 		}
 	}
 }
