@@ -22,24 +22,26 @@ public class GameLoop {
 			public void run() {
 				initVariables();
 				while (gameRunning) {
-					debug("LOOP----------");
-					
 					if (M == 0 || !output) endGame();
 					
-					while (output) {
+					do {
+						updateBorder();
 						output = false;
 						//concurrent modification: must iterate through revealed border as such (guess() may append cells)
 						for (int i = 0; i < revealedBorder.size(); i++) {
 							compute(revealedBorder.get(i)[0], revealedBorder.get(i)[1]);	//use basic logic method
 						}
-						updateBorder();
-					}
+					} while (output);
 					
 					updateLinks();
 					updateMatrices();
-					//debugInfo();
 					
 					linAlg();	//use linear algebra method
+					if (!output) {
+						endGame();
+						//debug("GUESSING");
+						//localMinGuess();
+					}
 				}
 			}
 		});
@@ -93,7 +95,7 @@ public class GameLoop {
 		int numMines = numMines(row, col);
 		if (board[row][col] == numMines + hidden.size()) {	//surroundings are mines
 			for (int[] mine : hidden) {
-				isMine(mine[0], mine[1], false);
+				isMine(mine[0], mine[1], true);
 			}
 		} else if (board[row][col] == numMines) {	//surroundings are safe
 			for (int[] safe : hidden) {
@@ -129,7 +131,7 @@ public class GameLoop {
 				if (pCells.size() + nCells.size() > 0) {	//if not zero row
 					if (Math.abs(val-pos) < TOLERANCE) {	//all positive entries are mines (1), all negative entries are safe (0)
 						for (int[] p : pCells) {
-							isMine(p[0], p[1], false);
+							isMine(p[0], p[1], true);
 						}
 						for (int[] n : nCells) {
 							guess(n[0], n[1]);
@@ -139,7 +141,7 @@ public class GameLoop {
 							guess(p[0], p[1]);
 						}
 						for (int[] n : nCells) {
-							isMine(n[0], n[1], false);
+							isMine(n[0], n[1], true);
 						}
 					}	//else, row does not give information with certainty
 				}
@@ -191,11 +193,25 @@ public class GameLoop {
 		return probs;	//cell appearances divided by total cases
 	}
 	
-	public static double[] localMin(double[][] matrix) {
-		double[] probs = new double[matrix[0].length-1];
-		Arrays.fill(probs, 1);
-		int[] count = new int[matrix.length];	//counts number of entries
-		return probs;
+	//guess using local probabilities
+	public static void localMinGuess() {
+		int[] guess = hiddenLinks.get(0).get(0);
+		double probability = 1;	//probability of a mine; search for minimum
+		for (ArrayList<int[]> link : hiddenLinks) {
+			for (int[] hidden : link) {
+				double p = 0;	//find worst case probability
+				for (int[] revealed : getAdj(hidden[0], hidden[1], true)) {
+					double numerator = board[revealed[0]][revealed[1]] - numMines(revealed[0], revealed[1]);
+					double denominator = getAdj(revealed[0], revealed[1], false).size();
+					p = Math.max(p, numerator/denominator);
+				}
+				if (p < probability) {
+					probability = p;
+					guess = hidden;
+				}
+			}
+		}
+		guess(guess[0], guess[1]);
 	}
 	
 	//remove cell if no longer on border
@@ -302,8 +318,9 @@ public class GameLoop {
 		waitForData();
 		
 		if (s.hasNext("BOOM!")) {
-			isMine(row, col, true);
-			s.nextLine();	//clear runtime feedback
+			isMine(row, col, false);
+			s.next();	//clear runtime feedback
+			s.next();
 		} else {
 			board[row][col] = s.nextInt();
 			s.next();	//clear runtime feedback
@@ -313,11 +330,11 @@ public class GameLoop {
 		}
 	}
 	
-	public static void isMine(int row, int col, boolean feedback) {
+	public static void isMine(int row, int col, boolean print) {
 		if (!(board[row][col] == HIDDEN)) return;
 		board[row][col] = MINE;
 		M--;
-		if (!feedback) {
+		if (print) {
 			output = true;
 			System.out.println("F " + row + " " + col);
 		}
