@@ -17,7 +17,7 @@ public class GameLoop {
 	private static boolean output = true;
 	private static boolean debug = true;
 	
-	public static void main(String args[]) {		
+	public static void main(String args[]) {
 		Thread loop = new Thread(new Runnable() {
 			public void run() {
 				initVariables();
@@ -26,13 +26,20 @@ public class GameLoop {
 					
 					if (M == 0 || !output) endGame();
 					
-					output = false;
-					updateBorder();
+					while (output) {
+						output = false;
+						//concurrent modification: must iterate through revealed border as such (guess() may append cells)
+						for (int i = 0; i < revealedBorder.size(); i++) {
+							compute(revealedBorder.get(i)[0], revealedBorder.get(i)[1]);	//use basic logic method
+						}
+						updateBorder();
+					}
+					
 					updateLinks();
 					updateMatrices();
 					//debugInfo();
-					resolveCertainties();
-					//endGame();
+					
+					linAlg();	//use linear algebra method
 				}
 			}
 		});
@@ -80,10 +87,25 @@ public class GameLoop {
 		}
 	}
 	
-	//resolve logical certainties
-	public static void resolveCertainties() {
+	//resolve with basic logic
+	public static void compute(int row, int col) {
+		ArrayList<int[]> hidden = getAdj(row, col, false);
+		int numMines = numMines(row, col);
+		if (board[row][col] == numMines + hidden.size()) {	//surroundings are mines
+			for (int[] mine : hidden) {
+				isMine(mine[0], mine[1], false);
+			}
+		} else if (board[row][col] == numMines) {	//surroundings are safe
+			for (int[] safe : hidden) {
+				guess(safe[0], safe[1]);
+			}
+		}
+	}
+	
+	//resolve with linear algebra
+	public static void linAlg() {
 		for (int i = 0; i < matrices.size(); i++) {
-			double[][] matrix = rref(matrices.get(i), 0, 0);	//initial pivot at (0, 0)
+			double[][] matrix = matrices.get(i);
 			ArrayList<int[]> hLink = hiddenLinks.get(i);
 			ArrayList<int[]> pCells = new ArrayList<int[]>();	//coordinates of positive entries
 			ArrayList<int[]> nCells = new ArrayList<int[]>();	//coordinates of negative entries
@@ -107,7 +129,7 @@ public class GameLoop {
 				if (pCells.size() + nCells.size() > 0) {	//if not zero row
 					if (Math.abs(val-pos) < TOLERANCE) {	//all positive entries are mines (1), all negative entries are safe (0)
 						for (int[] p : pCells) {
-							isMine(p[0], p[1]);
+							isMine(p[0], p[1], false);
 						}
 						for (int[] n : nCells) {
 							guess(n[0], n[1]);
@@ -117,7 +139,7 @@ public class GameLoop {
 							guess(p[0], p[1]);
 						}
 						for (int[] n : nCells) {
-							isMine(n[0], n[1]);
+							isMine(n[0], n[1], false);
 						}
 					}	//else, row does not give information with certainty
 				}
@@ -211,7 +233,7 @@ public class GameLoop {
 				matrix[i][hLink.size()] = board[row][col] - numMines(row, col);
 			}
 			
-			matrices.add(matrix);
+			matrices.add(rref(matrix, 0, 0));
 		}
 	}
 	
@@ -280,7 +302,7 @@ public class GameLoop {
 		waitForData();
 		
 		if (s.hasNext("BOOM!")) {
-			board[row][col] = MINE;
+			isMine(row, col, true);
 			s.nextLine();	//clear runtime feedback
 		} else {
 			board[row][col] = s.nextInt();
@@ -291,11 +313,14 @@ public class GameLoop {
 		}
 	}
 	
-	public static void isMine(int row, int col) {
+	public static void isMine(int row, int col, boolean feedback) {
 		if (!(board[row][col] == HIDDEN)) return;
 		board[row][col] = MINE;
-		output = true;
-		System.out.println("F " + row + " " + col);
+		M--;
+		if (!feedback) {
+			output = true;
+			System.out.println("F " + row + " " + col);
+		}
 	}
 	
 	public static int numMines(int row, int col) {
@@ -327,9 +352,11 @@ public class GameLoop {
 	}
 	
 	public static void endGame() {
-		gameRunning = false;
 		debug("END");
 		System.out.println("STOP");
+
+		delay(1000);	//wait for other program to end
+		gameRunning = false;
 	}
 	
 	//in this game, row reduction entries are all integers (double[][] unneeded)
