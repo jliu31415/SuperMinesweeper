@@ -44,7 +44,7 @@ public class GameLoop {
 					}
 					
 					if (!output) linAlg();	//use linear algebra method
-					if (!output) localMinGuess();
+					if (!output) makeGuess();
 					if (!output) endGame();
 				}
 			}
@@ -153,8 +153,37 @@ public class GameLoop {
 		}
 	}
 	
-	public static double[] bruteForce(double[][] matrix) {
-		double[] probs = new double[matrix[0].length-1];
+	//makes best guess using brute force or local minimum, dependent on hidden links array size
+	public static void makeGuess() {
+		int[] guess = new int[2], finalGuess = null;
+		double mineProb = 1;
+		double[] info = null;	//contains cell coordinates and probability
+		
+		for (int i = 0; i < hiddenLinks.size(); i++) {
+			info = bruteForceGuess(i);
+			if (info == null) info = localMinGuess(i);
+			if (!shouldGuess(info[2])) continue;
+			
+			guess[0] = (int) info[0];
+			guess[1] = (int) info[1];
+			if (compareGuess(guess, info[2], finalGuess, mineProb)) {
+				finalGuess = guess;
+				mineProb = info[2];
+			}
+		}
+		
+		if (finalGuess != null) {
+			debug("GUESS MADE");
+			guess(finalGuess[0], finalGuess[1]);
+		}
+	}
+	
+	//returns best guess using brute force, formatted as [cell[], mine probability]
+	public static double[] bruteForceGuess(int linkIndex) {
+		double[][] matrix = matrices.get(linkIndex);
+		ArrayList<int[]> hLink = hiddenLinks.get(linkIndex);
+		if (hLink.size() > THRESHOLD) return null;	//too expensive computationally
+		double[] probs = new double[hLink.size()];
 		
 		int cases = 0;
 		String binArrange;	//binary arrangement
@@ -188,37 +217,45 @@ public class GameLoop {
 			}
 		}
 		
-		if (cases != 0) {
-			for (int index = 0; index < probs.length; index++) {
-				probs[index] /= cases;
+		if (cases == 0) return null;	//no successful arrangements
+		
+		int[] guess = null;
+		double mineProb = 1;
+		for (int i = 0; i < probs.length; i++) {
+			probs[i] /= cases;
+			if (compareGuess(hLink.get(i), probs[i], guess, mineProb)) {
+				guess = hLink.get(i);
+				mineProb = probs[i];
 			}
 		}
 		
-		return probs;	//cell appearances divided by total cases
+		return new double[] {guess[0], guess[1], mineProb};
 	}
 	
-	//guess using local probabilities
-	public static void localMinGuess() {
-		int[] guess = hiddenLinks.get(0).get(0);
+	//returns best guess using local probabilities, formatted as [cell[], mine probability]
+	public static double[] localMinGuess(int linkIndex) {
+		int[] guess = null;
 		double mineProb = 1;	//probability of a mine; search for minimum
-		for (ArrayList<int[]> link : hiddenLinks) {
-			for (int[] hidden : link) {
-				double p = 0;	//find worst case probability
-				for (int[] revealed : getAdj(hidden[0], hidden[1], true)) {
-					double numerator = board[revealed[0]][revealed[1]] - numMines(revealed[0], revealed[1]);
-					double denominator = getAdj(revealed[0], revealed[1], false).size();
-					p = Math.max(p, numerator/denominator);
-				}
-				if (p < mineProb) {
-					mineProb = p;
-					guess = hidden;
-				}
+		
+		for (int i = 0; i < hiddenLinks.get(linkIndex).size(); i++) {
+			int[] hCell = hiddenLinks.get(linkIndex).get(i);
+			double p = 0;	//initialize to zero and find worst case mine probability
+			for (int[] rCell : getAdj(hCell[0], hCell[1], true)) {
+				double numerator = board[rCell[0]][rCell[1]] - numMines(rCell[0], rCell[1]);
+				double denominator = getAdj(rCell[0], rCell[1], false).size();
+				p = Math.max(p, numerator/denominator);
+			}
+			
+			if (compareGuess(hCell, p, guess, mineProb)) {
+				guess = hCell;
+				mineProb = p;
 			}
 		}
-		if (shouldGuess(mineProb))
-			guess(guess[0], guess[1]);
+
+		return new double[] {guess[0], guess[1], mineProb};
 	}
 	
+	//guess all remaining hidden cells
 	public static void guessRemaining() {
 		for (int row = 0; row < N; row++) {
 			for (int col = 0; col < N; col++) {
@@ -228,11 +265,24 @@ public class GameLoop {
 		}
 	}
 	
+	public static boolean compareGuess(int[] g1, double p1, int[] g2, double p2) {
+		if (g2 == null) return true;
+		int adj1 = 1+getAdj(g1[0], g1[1], true).size();
+		int adj2 = 1+getAdj(g2[0], g2[1], true).size();
+		//weighted  by "usefulness"
+		return adj1*p1 < adj2*p2;
+	}
+	
 	//returns decision to guess with given fail probability
 	public static boolean shouldGuess(double mineProb) {
 		double currentScore = (double) cellsFound/((N*N-M)*(minesHit+1));
 		double expScore = (double) (cellsFound+1-mineProb)/((N*N-M)*(minesHit+1+mineProb));	//expected score
-		return expScore > currentScore;
+		double guessBonus = logistic(-currentScore+.5, 3)+.5;
+		return guessBonus*expScore > currentScore;
+	}
+	
+	public static double logistic(double x, double k) {
+		return 1.0/(1+Math.pow(Math.E, -k*x));
 	}
 	
 	//remove cell if no longer on border
