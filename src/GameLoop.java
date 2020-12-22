@@ -13,6 +13,7 @@ public class GameLoop {
 	private static ArrayList<ArrayList<int[]>> hiddenLinks;
 	private static ArrayList<int[]> revealedBorder;
 	private static ArrayList<double[][]> matrices;
+	public static int cellsFound = 1, minesFound = 0, minesHit = 0;
 	private static boolean gameRunning = true;
 	private static boolean output = true;
 	private static boolean debug = true;
@@ -21,9 +22,7 @@ public class GameLoop {
 		Thread loop = new Thread(new Runnable() {
 			public void run() {
 				initVariables();
-				while (gameRunning) {
-					if (M == 0 || !output) endGame();
-					
+				while (gameRunning) {					
 					do {
 						updateBorder();
 						output = false;
@@ -36,12 +35,17 @@ public class GameLoop {
 					updateLinks();
 					updateMatrices();
 					
-					linAlg();	//use linear algebra method
-					if (!output) {
-						endGame();
-						//debug("GUESSING");
-						//localMinGuess();
+					//if all cells uncovered
+					if (cellsFound + minesFound == N*N)	endGame();
+					
+					//if all mines found, guess remaining
+					if (matrices.size() == 0 && minesFound == M) {
+						guessRemaining();
 					}
+					
+					if (!output) linAlg();	//use linear algebra method
+					if (!output) localMinGuess();
+					if (!output) endGame();
 				}
 			}
 		});
@@ -196,7 +200,7 @@ public class GameLoop {
 	//guess using local probabilities
 	public static void localMinGuess() {
 		int[] guess = hiddenLinks.get(0).get(0);
-		double probability = 1;	//probability of a mine; search for minimum
+		double mineProb = 1;	//probability of a mine; search for minimum
 		for (ArrayList<int[]> link : hiddenLinks) {
 			for (int[] hidden : link) {
 				double p = 0;	//find worst case probability
@@ -205,13 +209,30 @@ public class GameLoop {
 					double denominator = getAdj(revealed[0], revealed[1], false).size();
 					p = Math.max(p, numerator/denominator);
 				}
-				if (p < probability) {
-					probability = p;
+				if (p < mineProb) {
+					mineProb = p;
 					guess = hidden;
 				}
 			}
 		}
-		guess(guess[0], guess[1]);
+		if (shouldGuess(mineProb))
+			guess(guess[0], guess[1]);
+	}
+	
+	public static void guessRemaining() {
+		for (int row = 0; row < N; row++) {
+			for (int col = 0; col < N; col++) {
+				if (board[row][col] == HIDDEN)
+					guess(row, col);
+			}
+		}
+	}
+	
+	//returns decision to guess with given fail probability
+	public static boolean shouldGuess(double mineProb) {
+		double currentScore = (double) cellsFound/((N*N-M)*(minesHit+1));
+		double expScore = (double) (cellsFound+1-mineProb)/((N*N-M)*(minesHit+1+mineProb));	//expected score
+		return expScore > currentScore;
 	}
 	
 	//remove cell if no longer on border
@@ -318,13 +339,14 @@ public class GameLoop {
 		waitForData();
 		
 		if (s.hasNext("BOOM!")) {
+			minesHit++;
 			isMine(row, col, false);
 			s.next();	//clear runtime feedback
 			s.next();
 		} else {
+			cellsFound++;
 			board[row][col] = s.nextInt();
 			s.next();	//clear runtime feedback
-			
 			if (board[row][col] == 0) isZero(row, col);		//recursive zero-out
 			else revealedBorder.add(new int[] {row, col});	//add new (potential) border cell
 		}
@@ -332,8 +354,8 @@ public class GameLoop {
 	
 	public static void isMine(int row, int col, boolean print) {
 		if (!(board[row][col] == HIDDEN)) return;
+		minesFound++;
 		board[row][col] = MINE;
-		M--;
 		if (print) {
 			output = true;
 			System.out.println("F " + row + " " + col);
@@ -369,9 +391,8 @@ public class GameLoop {
 	}
 	
 	public static void endGame() {
-		debug("END");
+		debug("EXIT");
 		System.out.println("STOP");
-
 		delay(1000);	//wait for other program to end
 		gameRunning = false;
 	}
@@ -417,8 +438,8 @@ public class GameLoop {
 		return rref(matrix, pivotR+1, pivotC+1);
 	}
 	
-	public static void debug(String s) {
-		if (debug) System.out.println("Debug " + s);
+	public static void debug(Object s) {
+		if (debug) System.out.println("Debug " + s.toString());
 	}
 	
 	public static void debugInfo() {
