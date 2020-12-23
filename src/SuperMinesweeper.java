@@ -1,7 +1,7 @@
 import java.util.*;
 //java SuperMinesweeperTester -exec "java -cp \"C:\Users\JL\Documents\Eclipse Workspace\SuperMinesweeper\bin\" GameLoop"
 
-public class GameLoop {
+public class SuperMinesweeper {
 	private static Scanner s;
 	private static int N, M, D;
 	private static double d;
