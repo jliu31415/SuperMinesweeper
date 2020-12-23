@@ -13,39 +13,36 @@ public class GameLoop {
 	private static ArrayList<ArrayList<int[]>> hiddenLinks;
 	private static ArrayList<int[]> revealedBorder;
 	private static ArrayList<double[][]> matrices;
-	public static int cellsFound = 1, minesFound = 0, minesHit = 0;
+	private static int[][][] adjacentInfo;	//adjacent revealed, hidden, mines for each cell
+	private static int cellsFound = 1, minesFound = 0, minesHit = 0;
 	private static boolean gameRunning = true;
 	private static boolean output = true;
-	private static boolean debug = true;
+	private static boolean debug = false;
+	private static boolean alwaysGuess = false, neverGuess = false;
 	
 	public static void main(String args[]) {
 		Thread loop = new Thread(new Runnable() {
 			public void run() {
 				initVariables();
-				while (gameRunning) {					
+				while (gameRunning) {
 					do {
-						updateBorder();
 						output = false;
-						//concurrent modification: must iterate through revealed border as such (guess() may append cells)
 						for (int i = 0; i < revealedBorder.size(); i++) {
 							compute(revealedBorder.get(i)[0], revealedBorder.get(i)[1]);	//use basic logic method
 						}
 					} while (output);
-					
+
 					updateLinks();
 					updateMatrices();
-					
-					//if all cells uncovered
-					if (cellsFound + minesFound == N*N)	endGame();
 					
 					//if all mines found, guess remaining
 					if (matrices.size() == 0 && minesFound == M) {
 						guessRemaining();
 					}
-					
+
 					if (!output) linAlg();	//use linear algebra method
 					if (!output) makeGuess();
-					if (!output) endGame();
+					if (!output || (cellsFound + minesFound == N*N)) endGame();
 				}
 			}
 		});
@@ -71,10 +68,18 @@ public class GameLoop {
 		hiddenLinks = new ArrayList<ArrayList<int[]>>();
 		revealedBorder = new ArrayList<int[]>();
 		matrices = new ArrayList<double[][]>();
+		adjacentInfo = new int[N][N][3];
 		
 		board = new int[N][N];
 		for (int[] a : board) Arrays.fill(a, HIDDEN);		
 		board[initRow][initCol] = 0;
+		
+		for (int i = 0; i < N; i++) {
+			for (int j = 0; j < N; j++) {
+				adjacentInfo[i][j][1] = getAdjCells(i, j, false).size();
+			}
+		}
+
 		isZero(initRow, initCol);
 	}
 	
@@ -95,8 +100,8 @@ public class GameLoop {
 	
 	//resolve with basic logic
 	public static void compute(int row, int col) {
-		ArrayList<int[]> hidden = getAdj(row, col, false);
-		int numMines = numMines(row, col);
+		ArrayList<int[]> hidden = getAdjCells(row, col, false);
+		int numMines = adjacentInfo[row][col][2];
 		if (board[row][col] == numMines + hidden.size()) {	//surroundings are mines
 			for (int[] mine : hidden) {
 				isMine(mine[0], mine[1], true);
@@ -173,7 +178,6 @@ public class GameLoop {
 		}
 		
 		if (finalGuess != null) {
-			debug("GUESS MADE");
 			guess(finalGuess[0], finalGuess[1]);
 		}
 	}
@@ -240,9 +244,9 @@ public class GameLoop {
 		for (int i = 0; i < hiddenLinks.get(linkIndex).size(); i++) {
 			int[] hCell = hiddenLinks.get(linkIndex).get(i);
 			double p = 0;	//initialize to zero and find worst case mine probability
-			for (int[] rCell : getAdj(hCell[0], hCell[1], true)) {
-				double numerator = board[rCell[0]][rCell[1]] - numMines(rCell[0], rCell[1]);
-				double denominator = getAdj(rCell[0], rCell[1], false).size();
+			for (int[] rCell : getAdjCells(hCell[0], hCell[1], true)) {
+				double numerator = board[rCell[0]][rCell[1]] - adjacentInfo[rCell[0]][rCell[1]][2];
+				double denominator = adjacentInfo[rCell[0]][rCell[1]][1];
 				p = Math.max(p, numerator/denominator);
 			}
 			
@@ -265,31 +269,67 @@ public class GameLoop {
 		}
 	}
 	
+	public static void guess(int row, int col) {
+		if (!(board[row][col] == HIDDEN)) return;	//ignore if cell has been revealed
+		output = true;
+		System.out.println("G " + row + " " + col);
+		waitForData();
+		
+		if (s.hasNext("BOOM!")) {
+			minesHit++;
+			isMine(row, col, false);
+			s.next();	//clear runtime feedback
+			s.next();
+		} else {
+			cellsFound++;
+			board[row][col] = s.nextInt();
+			s.next();	//clear runtime feedback
+			
+			updateAdjacentInfo(row, col, 0);	//increment revealed
+			updateAdjacentInfo(row, col, 1);	//decrement hidden
+			updateBorder(row, col);
+			
+			if (board[row][col] == 0) isZero(row, col);		//recursive zero-out
+		}
+	}
+	
 	public static boolean compareGuess(int[] g1, double p1, int[] g2, double p2) {
 		if (g2 == null) return true;
-		int adj1 = 1+getAdj(g1[0], g1[1], true).size();
-		int adj2 = 1+getAdj(g2[0], g2[1], true).size();
+		int adj1 = 1+adjacentInfo[g1[0]][g1[1]][0];
+		int adj2 = 1+adjacentInfo[g2[0]][g2[1]][0];
 		//weighted  by "usefulness"
 		return adj1*p1 < adj2*p2;
 	}
 	
 	//returns decision to guess with given fail probability
 	public static boolean shouldGuess(double mineProb) {
+		if (alwaysGuess) return true;
+		if (neverGuess) return false;
+		
 		double currentScore = (double) cellsFound/((N*N-M)*(minesHit+1));
 		double expScore = (double) (cellsFound+1-mineProb)/((N*N-M)*(minesHit+1+mineProb));	//expected score
-		double guessBonus = logistic(-currentScore+.5, 3)+.5;
-		return guessBonus*expScore > currentScore;
+		
+		//sparser mine density yields higher bonus; given between [.1, .3]
+		double guessBonus = logistic(-(double)M/(N*N)+.2, 2)-.5;
+		//more mines hit this game --> lesser bonus	(also prevents timeout)
+		guessBonus -= Math.pow(.1, 10.0/minesHit);
+		return guessBonus+expScore > currentScore;
 	}
 	
 	public static double logistic(double x, double k) {
-		return 1.0/(1+Math.pow(Math.E, -k*x));
+		return 1/(1+Math.pow(Math.E, -k*x));
 	}
 	
-	//remove cell if no longer on border
-	public static void updateBorder() {
+	//update border after guessing cell with given coordinates
+	public static void updateBorder(int row, int col) {
+		if (board[row][col] != MINE && adjacentInfo[row][col][1] > 0) {
+			revealedBorder.add(new int[] {row, col});
+		}
+
 		for (int i = revealedBorder.size()-1; i >= 0; i--) {	//traverse backwards to prevent concurrent modification
-			//if cell no longer has hidden adjacent cells
-			if (getAdj(revealedBorder.get(i)[0], revealedBorder.get(i)[1], false).size() == 0)
+			int r = revealedBorder.get(i)[0];
+			int c = revealedBorder.get(i)[1];
+			if (adjacentInfo[r][c][1] == 0)
 				revealedBorder.remove(i);
 		}
 	}
@@ -317,7 +357,7 @@ public class GameLoop {
 			for (int i = 0; i < rLink.size(); i++) {
 				int row = rLink.get(i)[0];
 				int col = rLink.get(i)[1];
-				matrix[i][hLink.size()] = board[row][col] - numMines(row, col);
+				matrix[i][hLink.size()] = board[row][col] - adjacentInfo[row][col][2];
 			}
 			
 			matrices.add(rref(matrix, 0, 0));
@@ -351,11 +391,11 @@ public class GameLoop {
 		ArrayList<int[]> rLink = new ArrayList<int[]>();	//link containing revealed cells
 		ArrayList<int[]> hLink = new ArrayList<int[]>();	//link containing hidden cells
 
-		for (int[] hidden : getAdj(row, col, false)) {	//get hidden cells adjacent to revealed border cell
+		for (int[] hidden : getAdjCells(row, col, false)) {	//get hidden cells adjacent to revealed border cell
 			if (scanned[hidden[0]][hidden[1]]) continue;	//skip if already scanned
 			scanned[hidden[0]][hidden[1]] = true;
 			hLink.add(hidden);
-			for (int[] revealed : getAdj(hidden[0], hidden[1], true)) {	//get revealed cells adjacent to hidden cell
+			for (int[] revealed : getAdjCells(hidden[0], hidden[1], true)) {	//get revealed cells adjacent to hidden cell
 				if (scanned[revealed[0]][revealed[1]]) continue;		//skip if already scanned
 				rLink.add(revealed);
 				scanned[revealed[0]][revealed[1]] = true;
@@ -382,49 +422,33 @@ public class GameLoop {
 		}
 	}
 	
-	public static void guess(int row, int col) {
-		if (!(board[row][col] == HIDDEN)) return;	//ignore if cell has been revealed
-		output = true;
-		System.out.println("G " + row + " " + col);
-		waitForData();
-		
-		if (s.hasNext("BOOM!")) {
-			minesHit++;
-			isMine(row, col, false);
-			s.next();	//clear runtime feedback
-			s.next();
-		} else {
-			cellsFound++;
-			board[row][col] = s.nextInt();
-			s.next();	//clear runtime feedback
-			if (board[row][col] == 0) isZero(row, col);		//recursive zero-out
-			else revealedBorder.add(new int[] {row, col});	//add new (potential) border cell
-		}
-	}
-	
 	public static void isMine(int row, int col, boolean print) {
 		if (!(board[row][col] == HIDDEN)) return;
 		minesFound++;
 		board[row][col] = MINE;
+		updateAdjacentInfo(row, col, 1);	//decrement hidden
+		updateAdjacentInfo(row, col, 2);	//increment mines
+		updateBorder(row, col);
+		
 		if (print) {
 			output = true;
 			System.out.println("F " + row + " " + col);
 		}
 	}
 	
-	public static int numMines(int row, int col) {
-		int count = 0;
+	public static void updateAdjacentInfo(int row, int col, int type) {
 		for (int i = (int) Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
 			for (int j = (int) Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
+				if (row == i && col == j)	continue; 
 				if (Math.hypot(row-i, col-j) <= d) {
-					if (board[i][j] == MINE) count++;
+					if (type == 1)	adjacentInfo[i][j][type]--;
+					else adjacentInfo[i][j][type]++;
 				}
 			}
 		}
-		return count;
 	}
 
-	public static ArrayList<int[]> getAdj(int row, int col, boolean revealed) {
+	public static ArrayList<int[]> getAdjCells(int row, int col, boolean revealed) {
 		ArrayList<int[]> adjacent = new ArrayList<int[]>();
 		for (int i = (int) Math.max(row-d, 0); i < Math.min(row+d+1, N); i++) {
 			for (int j = (int) Math.max(col-d, 0); j < Math.min(col+d+1, N); j++) {
@@ -441,7 +465,6 @@ public class GameLoop {
 	}
 	
 	public static void endGame() {
-		debug("EXIT");
 		System.out.println("STOP");
 		delay(1000);	//wait for other program to end
 		gameRunning = false;
